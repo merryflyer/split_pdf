@@ -8,3 +8,6 @@ split_output_ch*/
 
 # 源 PDF(39MB,体积大;需版本管理可自行 git add -f)
 计算机系统原理*.pdf
+
+# macOS
+.DS_Store
