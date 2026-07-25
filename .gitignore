@@ -1,0 +1,10 @@
+# WorkBuddy 项目内部数据(记忆/缓存),不入库
+.workbuddy/
+
+# 拆分产物(可重新生成,体积大)
+split_output/
+split_output_ch1/
+split_output_ch*/
+
+# 源 PDF(39MB,体积大;需版本管理可自行 git add -f)
+计算机系统原理*.pdf
