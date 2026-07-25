@@ -16,24 +16,62 @@ import re
 HEADING_MIN_SIZE = 11.8  # 比正文(~11.1)略高,避免误判正文为标题
 CN_NUM = r"[一二三四五六七八九十百零两]"
 
+# OCR 易混淆字符: 数字 '1' 常被识别成 'L'/'l'/'I', '0' 被识别成 'O'。
+# 只在「编号前缀」(开头连续的 数字/点/空格/易混淆字母) 内做还原,
+# 标题正文部分保持原样, 避免误改 "L1 cache" 之类的正文。
+CONFUSE_MAP = {"L": "1", "l": "1", "I": "1", "O": "0", "o": "0",
+               "｜": "1", "丨": "1"}
+
+
+def _norm_heading(t):
+    """仅规范化编号前缀中的易混淆字符, 其余原样返回。"""
+    out = []
+    norm_active = True
+    for ch in t:
+        if norm_active:
+            if ch in CONFUSE_MAP:
+                out.append(CONFUSE_MAP[ch])
+                continue
+            if re.match(r"[\d\.\s]", ch):
+                out.append(ch)
+                continue
+            norm_active = False  # 进入标题正文, 关闭规范化
+        out.append(ch)
+    return "".join(out)
+
 
 def classify(text, size):
-    """返回层级: 1=章, 2=节, 3=小结, 0=非标题。"""
+    """返回层级: 1=章, 2=节, 3=小结, 0=非标题。
+
+    文本层可能含 OCR 残损: 编号里的 '1' 被识别成 'L'/'l'/'I',
+    若不匹配数字则小节整段漏检、内容被并入上一节(见经验文件「已知坑」)。
+    匹配前用 _norm_heading 把编号前缀还原成数字。
+    """
     t = text.strip()
+    tn = _norm_heading(t)
     if size < HEADING_MIN_SIZE:
         return 0
     # 章: 阿拉伯数字 "第N章" (正文)
-    if re.match(r"^第\s*\d+\s*章", t):
+    if re.match(r"^第\s*\d+\s*章", tn):
         return 1
     # 目录里的 "第一章" 中文数字 -> 排除(不是正文标题)
-    if re.match(r"^第\s*" + CN_NUM + r"+\s*章", t):
+    if re.match(r"^第\s*" + CN_NUM + r"+\s*章", tn):
         return 0
-    # 编号标题 X.X...
-    if re.match(r"^(\d+\s*\.\s*)+(?=\d)", t):
-        return 3 if t.count(".") >= 2 else 2
-    if re.match(r"^\d+\s*\.\s*\d+\s*$", t):
-        return 2
-    if t in ("本章小结", "习题", "编者的话", "组编前言", "大纲前言"):
+    # 编号标题: 容忍缺失的点/空格。OCR 常把 '1.3.2' 认成 'L 3 . 2'
+    # (章节间的点也一起丢)。做法: 取开头连续 [数字/点/空格] 段,
+    # 按分隔符切成数字组, 组数即层级 —— 3 组=小结, 2 组=节。
+    # 兼容性: '10.2'(两位章节号) -> 组 ['10','2'] -> 2 组 -> 节, 正确。
+    m = re.match(r"^([0-9\.\s]+)\s+([^\d.\s])", tn)   # 数字段 + 空白 + 标题首字(非数字/点)
+    if not m:
+        m = re.match(r"^([0-9\.\s]+)$", tn)       # 孤立编号(无标题), 如 "1.2"
+    if m:
+        groups = [g for g in re.split(r"[.\s]+", m.group(1).strip()) if g]
+        n = len(groups)
+        if n == 3:
+            return 3
+        if n == 2:
+            return 2
+    if tn in ("本章小结", "习题", "编者的话", "组编前言", "大纲前言"):
         return 3
     return 0
 
@@ -53,7 +91,8 @@ def detect_headings(doc):
                 y = round(line["bbox"][1])
                 lv = classify(txt, size)
                 if lv:
-                    raw.append({"p": pno, "y": y, "lv": lv, "t": re.sub(r"\s+", " ", txt.strip())})
+                    norm = _norm_heading(txt)
+                    raw.append({"p": pno, "y": y, "lv": lv, "t": re.sub(r"\s+", " ", norm.strip())})
     raw.sort(key=lambda h: (h["p"], h["y"]))
     # 合并跨行标题: 同页、同层、纵向相邻、续行不以数字开头
     merged = []
@@ -83,7 +122,7 @@ def chapter_bounds(doc):
                 txt = "".join(s["text"] for s in spans)
                 size = max(s["size"] for s in spans)
                 if classify(txt, size) == 1:  # 仅正文大字号章标题
-                    m = re.match(r"^第\s*(\d+)\s*章", txt)
+                    m = re.match(r"^第\s*(\d+)\s*章", _norm_heading(txt))
                     if m:
                         bounds.setdefault(int(m.group(1)), pno)
     return bounds
