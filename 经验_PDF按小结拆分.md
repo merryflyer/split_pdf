@@ -40,7 +40,8 @@
 
 ### 规则 4：章 / 节标题与引言要作为上下文带进首个小节
 - 章标题 + 章引言（如"第1章"及开篇段）应归入**本章第一个小节**文件（作为上下文），不要丢在缝里。
-- 规则 3 的"向前回溯取最近结构父标题"天然实现这一点：第一章首个小结 `1.1.1` 向前回溯到 `第1章`，引言即被找回。
+- 实现要点：向前回溯时**必须持续越过多级父标题**（1.1.1 ← 1.1 ← 第1章），取最早的父标题作为起点；
+  只停在第一个父级会把章标题 + 章引言掉出所有小节之外（见已知坑 7）。
 
 ### 规则 5：标题跨行要合并，避免文件名截断
 - 有些标题换行成两行（如 `2.1.1 信` / `息的二进制编码`），只抓首行会导致文件名不完整。
@@ -69,23 +70,29 @@
 
 ## 三、运行方式
 
-复用脚本 `split_pdf_by_section.py`（项目根目录）或 skill 内 `scripts/split_by_section.py`：
+复用脚本 `split_pdf_by_section.py`（项目根目录，CLI 薄包装）或 skill 内 `scripts/split_by_section.py`；
+核心逻辑在 `pdfsplit/` 包（classifier / detector / sections / renderer）。
 
 ```bash
 # 全本按小结(默认 level=3)拆分
-python split_pdf_by_section.py
+python split_pdf_by_section.py --input book.pdf --output_dir out/
 
-# 只拆第一章做示例(输出到 split_output_ch1/)
-python split_pdf_by_section.py --chapter 1
+# 只拆第一章做示例
+python split_pdf_by_section.py --input book.pdf --output_dir out/ --chapter 1
 
-# 换粒度: 按节(level=2, 约23个) / 按章(level=1, 6个)
-python split_pdf_by_section.py --level 2
+# 换粒度: 按节(level=2) / 按章(level=1)
+python split_pdf_by_section.py --input book.pdf --output_dir out/ --level 2
 
 # 只看方案不生成
-python split_pdf_by_section.py --preview
+python split_pdf_by_section.py --input book.pdf --output_dir out/ --preview
+
+# 换书时调整标题字号阈值
+python split_pdf_by_section.py --input book.pdf --output_dir out/ --min-size 12.5
 ```
 
-参数：`--level {1,2,3}`（1=章,2=节,3=小结）、`--chapter N`（单章）、`--preview`。
+参数：`--level {1,2,3}`（1=章,2=节,3=小结）、`--chapter N`（单章）、`--min-size`（标题字号阈值）、`--preview`。
+
+测试：`python -m pytest tests/ -q`（37 项，含合成 PDF 端到端拆分验证）。
 
 ---
 
@@ -97,6 +104,8 @@ python split_pdf_by_section.py --preview
 4. **合并续行阈值 40pt 为经验值**，对特殊排版可能误并/漏并。→ 可改为基于行高统计自适应。
 5. **`--chapter N` 依赖章标题页码定位**；若章标题被 OCR 破坏则失效。→ 改进：支持手动指定章节页码范围。
 6. 本经验与 skill 应**持续迭代**：每遇到新 PDF 的新坑，就回来补充规则、更新坑点列表，并用 `SkillManage` 改进 skill 脚本。
+7. **章标题 + 章引言被静默丢弃（高危，已修复）**：回溯起点时若只停在第一个父级标题，结构为 `第1章 → 1.1 → 1.1.1` 时首个小结只回溯到 `1.1`，章标题与引言（第1章~1.1 之间）不进任何文件。**修复**：回溯持续越过多级父标题直到同层为止，取最早父标题（v2.0 已落地，有测试覆盖）。
+8. **OCR 还原误改标题正文（高危，已修复）**：旧 `_norm_heading` 把前缀内所有易混淆字符无差别还原，`"1.4 IO 模型"` 的 I/O 被改成 1/0、`"1.3 L2 cache"` 的 L 被改成 1 → 节(2级)被误判成小结(3级)。CS 教材里 IO/L1/L2 高频出现。**修复**：只还原「孤立」易混淆字符（前后都是分隔符或位于首尾）；与字母/数字相邻时视为正文起始并终止规范化（v2.0 已落地，有测试覆盖）。
 
 ---
 
