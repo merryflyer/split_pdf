@@ -11,8 +11,10 @@ CONFUSE_MAP = {"L": "1", "l": "1", "I": "1", "O": "0", "o": "0",
 _PREFIX_CHARS = frozenset("0123456789. \t")  # 编号前缀合法字符
 _SEPARATORS = frozenset(" \t.")              # 编号内的组分隔符
 
-# 编号标题: 数字段 + 空白 + 标题首字(非数字/点); 或孤立编号(无标题)
-_RE_NUMBERED = re.compile(r"^([0-9.\s]+)\s+([^\d.\s])")
+# 编号标题: 数字段(非贪婪) + 前瞻标题首字(非数字/点); 或孤立编号(无标题)。
+# 非贪婪 + 前瞻是为了容忍同行碎片拼接后编号与标题间无空白的情况
+# (如 '2. 7. 5原码除法运算', 编号碎片与标题碎片是两个 line 对象, 拼接无空格)。
+_RE_NUMBERED = re.compile(r"^([0-9.\s]+?)(?=[^\d.\s])")
 _RE_NUMBER_ONLY = re.compile(r"^([0-9.\s]+)$")
 _RE_CHAPTER = re.compile(r"^第\s*\d+\s*章")                    # 正文章标题(阿拉伯数字)
 _RE_TOC_CHAPTER = re.compile(r"^第\s*" + CN_NUM + r"+\s*章")   # 目录章条目(中文数字)

@@ -88,6 +88,11 @@ class TestClassify:
         assert classify("1.1 引言", 11.5) == 0
         assert classify("1.1 引言", 11.5, min_size=11.0) == 2
 
+    def test_no_space_between_numbering_and_title(self):
+        # 同行碎片拼接后编号与标题间无空白: '2. 7. 5原码除法运算'
+        assert classify("2. 7. 5原码除法运算", 12.9) == 3
+        assert classify("2.7.5原码除法运算", 12.9) == 3
+
 
 # ---------------- sanitize: 文件名净化 ----------------
 
@@ -100,6 +105,10 @@ class TestSanitize:
 
     def test_whitespace_folded(self):
         assert sanitize("1.1   引言") == "1.1 引言"
+
+    def test_dot_spacing_collapsed(self):
+        assert sanitize("2 . 1 . 1 信") == "2.1.1 信"
+        assert sanitize("2 .1 . 2 进位记数制") == "2.1.2 进位记数制"
 
 
 # ---------------- build_sections: 区间构造 ----------------
@@ -156,6 +165,63 @@ class TestBuildSections:
         assert len(secs) == 2
         assert (secs[0]["p_s"], secs[0]["y_s"]) == (0, 100)  # 1.1 上抬到第1章
         assert (secs[1]["p_s"], secs[1]["y_s"]) == (2, 100)  # 1.2 自身
+
+
+# ---------------- detect_headings: 视觉行合并 + 跨行标题合并 ----------------
+
+class TestDetectHeadingsMerging:
+    def _doc(self):
+        return fitz.open()
+
+    def test_row_fragments_merged(self, tmp_path):
+        # 编号碎片(小字号) + 标题碎片(大字号)同一视觉行 -> 合并检出
+        # 真实案例: 原书 p83 '2. 7. 5'(11.1) + '原码除法运算'(12.9)
+        doc = fitz.open()
+        p = doc.new_page(width=595, height=842)
+        p.insert_text((92, 566), "2. 7. 5", fontsize=11.1, fontname="helv")
+        p.insert_text((140, 566), "Division Title", fontsize=12.9, fontname="helv")
+        headings = detect_headings(doc)
+        doc.close()
+        assert len(headings) == 1
+        assert headings[0]["lv"] == 3
+        assert "Division Title" in headings[0]["t"]
+
+    def test_continuation_bigtext_merged(self, tmp_path):
+        # 标题后半段被拆到下一行(大字号无编号, 纵距<40) -> 并入标题
+        doc = fitz.open()
+        p = doc.new_page(width=595, height=842)
+        p.insert_text((72, 200), "1.2.3 Split", fontsize=16, fontname="helv")
+        p.insert_text((72, 224), "Title Tail", fontsize=16, fontname="helv")
+        p.insert_text((72, 260), "body text starts here", fontsize=11, fontname="helv")
+        headings = detect_headings(doc)
+        doc.close()
+        assert len(headings) == 1
+        assert "Title Tail" in headings[0]["t"]
+
+    def test_continuation_window_closes_on_body(self, tmp_path):
+        # 标题与远处大字号行之间隔着正文行 -> 不合并(防止公式误并)
+        doc = fitz.open()
+        p = doc.new_page(width=595, height=842)
+        p.insert_text((72, 200), "1.2.4 Real Title", fontsize=16, fontname="helv")
+        p.insert_text((72, 224), "body line in between", fontsize=11, fontname="helv")
+        p.insert_text((72, 238), "2Ri+Yo formula", fontsize=15, fontname="helv")
+        headings = detect_headings(doc)
+        doc.close()
+        assert len(headings) == 1
+        assert "formula" not in headings[0]["t"]
+
+    def test_distinct_rows_not_merged(self, tmp_path):
+        # 相邻正文行(17pt 行距)不能被视觉行合并吞掉
+        doc = fitz.open()
+        p = doc.new_page(width=595, height=842)
+        p.insert_text((72, 100), "1.2.5 Title", fontsize=16, fontname="helv")
+        p.insert_text((72, 130), "body row one", fontsize=11, fontname="helv")
+        p.insert_text((72, 147), "body row two", fontsize=11, fontname="helv")
+        headings = detect_headings(doc)
+        text = "\n".join(pg.get_text() for pg in doc)
+        doc.close()
+        assert len(headings) == 1
+        assert "body row one" in text and "body row two" in text
 
 
 # ---------------- 端到端: 合成 PDF 拆分 ----------------

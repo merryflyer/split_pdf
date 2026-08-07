@@ -82,8 +82,10 @@ def _has_content_above(doc, pno, y_limit):
 
 
 def sanitize(name):
-    """文件名净化: 非法字符替换为下划线, 折叠空白, 截断 80 字符。"""
+    """文件名净化: 非法字符替换为下划线, 点号两侧空白折叠('2 . 1 . 1'->'2.1.1'),
+    折叠连续空白, 截断 80 字符。"""
     for ch in '\\/:*?"<>|':
         name = name.replace(ch, "_")
+    name = re.sub(r"\s*\.\s*", ".", name)
     name = re.sub(r"\s+", " ", name)
     return name.strip()[:80]
