@@ -223,6 +223,19 @@ class TestDetectHeadingsMerging:
         assert len(headings) == 1
         assert "body row one" in text and "body row two" in text
 
+    def test_stray_large_fragment_no_size_boost(self, tmp_path):
+        # 真实案例(原书 p56): 公式行 '0. 375x2...' (11.1) 同行混入 1 字符
+        # 大号乱码碎片 'i' (12.9) -> 整行字号被顶过阈值, '0. 375' 被误判为
+        # 2 组编号节标题(lv2), 进而污染 2.1.3 的 raised 起点。
+        doc = fitz.open()
+        p = doc.new_page(width=595, height=842)
+        p.insert_text((107, 643), "0. 375x2 = 0. 75", fontsize=11.1, fontname="helv")
+        p.insert_text((217, 643), "integer part = 0", fontsize=11.1, fontname="helv")
+        p.insert_text((317, 646), "i", fontsize=12.9, fontname="helv")
+        headings = detect_headings(doc)
+        doc.close()
+        assert headings == []
+
 
 # ---------------- 端到端: 合成 PDF 拆分 ----------------
 

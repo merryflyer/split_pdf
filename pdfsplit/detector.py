@@ -38,8 +38,13 @@ def _iter_page_lines(page):
     out = []
     for r in rows:
         fs = sorted(r["fs"], key=lambda f: f["x"])
+        # 字号只从「实质碎片」(>2 字符)取最大值: 防止公式行被同行混入的
+        # 1 字符大号乱码碎片(如 'i'/']', OCR 垃圾)把整行字号顶过阈值,
+        # 使 '0. 375×2=...' 这类行被误判成 2 组编号的节标题。
+        # (真实标题碎片都是长文本: '原码除法运算' 6 字、'2 . 1 . 1 信' 9 字)
+        sig = [f for f in fs if len(f["txt"].strip()) > 2] or fs
         out.append({"y": min(f["top"] for f in fs),
-                    "size": max(f["size"] for f in fs),
+                    "size": max(f["size"] for f in sig),
                     "txt": "".join(f["txt"] for f in fs)})
     out.sort(key=lambda r: r["y"])
     return out
